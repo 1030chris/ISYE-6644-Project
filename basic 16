@@ -1,0 +1,170 @@
+import random
+import multiprocessing
+import math
+
+# set number of simulated hands to run
+simulations = 1000000
+
+def simulate(queue, batch_size):
+    deck = []
+
+    def new_deck():
+        std_deck = [
+          # 2  3  4  5  6  7  8  9  10  J   Q   K   A
+            2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 11,
+            2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 11,
+            2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 11,
+            2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 11,
+        ]
+
+        
+        # shuffle the deck
+        random.shuffle(std_deck)
+
+        return std_deck[:]
+
+    def play_hand():
+        dealer_cards = []
+        player_cards = []
+
+        # deal initial cards
+        player_cards.append(deck.pop(0))
+        dealer_cards.append(deck.pop(0))
+        player_cards.append(deck.pop(0))
+        dealer_cards.append(deck.pop(0))
+        
+        
+        # player dealt 2 aces
+        if player_cards == [11,11]:
+            for i, card in enumerate(player_cards):
+                if card == 11:
+                    player_cards[i] = 1
+                    break
+                    
+        # player stands on 16-21
+        while sum(player_cards) < 16:
+            player_cards.append(deck.pop(0))
+            if sum(player_cards) > 21 and 11 in player_cards:
+                for i, card in enumerate(player_cards):
+                    if card == 11:
+                        player_cards[i] = 1
+                        break            
+        
+        # dealer dealt 2 aces
+        if dealer_cards == [11,11]:
+            for i, card in enumerate(dealer_cards):
+                if card == 11:
+                    dealer_cards[i] = 1
+                    break
+        
+        # dealer stands on soft 17
+        while sum(dealer_cards) < 17:
+            dealer_cards.append(deck.pop(0))
+            if sum(dealer_cards) > 21 and 11 in player_cards:
+                for i, card in enumerate(dealer_cards):
+                    if card == 11:
+                        dealer_cards[i] = 1
+                        break
+
+        p_sum = sum(player_cards)
+        d_sum = sum(dealer_cards)
+        
+        
+        # player bust
+        if p_sum > 21:
+            return -1
+        else:
+        # player and dealer push
+            if d_sum == p_sum:
+                return 0
+            else:
+        # player has blackjack!
+                if len(player_cards) == 2 and p_sum == 21:
+                    return 1.5
+        # dealer has blackjack!
+                if len(dealer_cards) == 2 and d_sum == 21:
+                    return -1
+                else: 
+        # dealer bust
+                    if d_sum > 21:
+                        return 1
+                    else:
+        # dealer win
+                        if d_sum > p_sum:
+                            return -1
+        # player win
+                        if d_sum < p_sum:
+                            return 1
+
+
+    # starting deck
+    deck = new_deck()
+
+    # play hands
+    win = 0
+    push = 0
+    lose = 0
+    multi = 0
+    for i in range(0, batch_size):
+        deck = new_deck()
+
+        # play hand
+        result = play_hand()
+
+        # tally results
+        if result == 1.5:
+            win += 1
+            multi += 1.5
+        if result == 1:
+            win += 1
+            multi += 1
+        if result == 0:
+            push += 1
+        if result == -1:
+            lose += 1
+            multi += -1
+            
+    # add everything to the final results
+    queue.put([win, push, lose, multi])
+
+
+# simulate
+cpus = multiprocessing.cpu_count()
+batch_size = int(math.ceil(simulations / float(cpus)))
+
+queue = multiprocessing.Queue()
+
+# create n processes
+processes = []
+
+for i in range(0, cpus):
+    process = multiprocessing.Process(target=simulate, args=(queue, batch_size))
+    processes.append(process)
+    process.start()
+
+# wait for everything to finish
+for proc in processes:
+    proc.join()
+
+
+
+# get totals
+win = 0
+push = 0
+lose = 0
+multi = 0
+
+for i in range(0, cpus):
+    results = queue.get()
+    win += results[0]
+    push += results[1]
+    lose += results[2]
+    multi += results[3]
+money = multi * 10
+    
+
+print('  total simulations: %d' % simulations)
+print('  win percentage: %.2f%%'  % ((win / float(simulations)) * 100))
+print('  push percentage: %.2f%%' % ((push / float(simulations)) * 100))
+print('  lose percentage: %.2f%%' % ((lose / float(simulations)) * 100))
+print('  total winnings/losses: $%d' % money)
